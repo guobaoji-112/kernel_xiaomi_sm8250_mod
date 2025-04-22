@@ -523,51 +523,56 @@ jobs:
 
     - name: 📝 Preparing files for release (准备发布文件)
       run: |
-        cd /home/runner/work/kernel_xiaomi_sm8250_mod/kernel_xiaomi_sm8250_mod/out
         mkdir -p release
+        cd /home/runner/work/kernel_xiaomi_sm8250_mod/kernel_xiaomi_sm8250_mod/out
+        device_list=()
         for dir in */; do
-        cd "$dir"
+          device_name=$(echo "$dir" | sed 's/Kernel-//' | sed 's/\/$//')
+          echo "Found device: $device_name"
+          device_list+=("$device_name")
+          cd "$dir"
         for zip_file in *; do
           if [[ -f "$zip_file" && "$zip_file" == *.zip ]]; then
-            unzip "$zip_file" -d ../../release
-            rm -rf "$zip_file"
-          fi
+          mv "$zip_file" /home/runner/work/kernel_xiaomi_sm8250_mod/kernel_xiaomi_sm8250_mod/release
+        fi
+          done
+          cd ..
         done
-        cd ..
-        done
-        # 列出 release 文件夹的内容
-        ls -la release
+        TARGET_DEVICES=$(echo "${device_list[*]}" | tr ' ' '_')
+        echo "TARGET_DEVICES=$TARGET_DEVICES" >> $GITHUB_ENV
 
     - name: 📅 Setting date variables (设置日期变量)
-      run: echo "RELEASE_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+      run: |
+        echo "RELEASE_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+        echo "GIT_COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
           
     - name: 📤 Post to Release (发布到 Release)
       uses: softprops/action-gh-release@v1
       with:
-        files: ./release/*.zip
-        name: Kernel_${{ matrix.device }}_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.BUILD_DATE }}_${{ env.GIT_COMMIT_ID }}_${{ github.event.inputs.build_type }}
-        tag_name: Kernel_${{ matrix.device }}_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.BUILD_DATE }}_${{ env.GIT_COMMIT_ID }}
+        files: /home/runner/work/kernel_xiaomi_sm8250_mod/kernel_xiaomi_sm8250_mod/release/*.zip
+        name: Kernel_【${{ env.TARGET_DEVICES }}】_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.RELEASE_DATE }}_${{ env.GIT_COMMIT_ID }}_${{ github.event.inputs.build_type }}
+        tag_name: Kernel_【${{ env.TARGET_DEVICES }}】_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.RELEASE_DATE }}_${{ env.GIT_COMMIT_ID }}
         body: |
           ## 📱kernel build information | 内核构建信息
-          
+      
           ### 🌐 英文 | English
-          - **Target Device:** ${{ matrix.device }}
+          - **Target Device:** ${{ env.TARGET_DEVICES }}
           - **Compiled System:** ${{ github.event.inputs.compiled_system }}
           - **KernelSU Variant:** ${{ github.event.inputs.kernelsu_variant }}
           - **KPM Support:** ${{ github.event.inputs.kpm_enable }}
           - **Build Type:** ${{ github.event.inputs.build_type }}
-          - **Build Date:** ${{ env.BUILD_DATE }}
+          - **Build Date:** ${{ env.RELEASE_DATE }}
           - **Commit ID:** ${{ env.GIT_COMMIT_ID }}
-          
+      
           ### 🇨🇳 中文 | Chinese
-          - **目标机型:** ${{ matrix.device }}
+          - **目标机型:** ${{ env.TARGET_DEVICES }}
           - **适用系统:** ${{ github.event.inputs.compiled_system }}
           - **KernelSU变体:** ${{ github.event.inputs.kernelsu_variant }}
           - **KPM支持:** ${{ github.event.inputs.kpm_enable }}
           - **构建类型:** ${{ github.event.inputs.build_type }}
-          - **构建日期:** ${{ env.BUILD_DATE }}
+          - **构建日期:** ${{ env.RELEASE_DATE }}
           - **提交ID:** ${{ env.GIT_COMMIT_ID }}
-          
+      
           ### 📋 安装说明 | Installation Guide
           1. 下载对应机型的刷机包
           2. 进入Recovery模式
