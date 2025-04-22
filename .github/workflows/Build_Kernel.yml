@@ -1,4 +1,4 @@
-name: 构建内核
+name: Build Kernel
 permissions:
   contents: write
   actions: write
@@ -6,10 +6,9 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      target_device:
-        description: '目标设备 (Target Device)'
+      target_devices:
+        description: 'target device (目标设备)'
         required: true
-        default: 'umi'
         type: choice
         options:
           - 'umi'
@@ -25,18 +24,17 @@ on:
           - 'lmi'
           - 'psyche'
           - 'pipa'
-
+          - 'all'
       compiled_system:
-        description: '适用系统 (Compiled System)'
+        description: 'Applicable systems (适用系统)'
         required: true
         type: choice
         default: 'MIUI'
         options:
           - 'MIUI'
           - 'AOSP'
-        
       kernelsu_variant:
-        description: 'KernelSU 变体 (KernelSU Variant)'
+        description: 'KernelSU variants (KernelSU 版本)'
         required: true
         type: choice
         default: 'SukiSU-Ultra'
@@ -45,24 +43,21 @@ on:
           - 'RKSU'
           - 'KernelSU'
           - 'None'
-
       kpm_enable:
-        description: '是否启用 KPM 支持? (KPM Support) [仅支持SukiSU-Ultra]'
+        description: 'Is KPM support enabled? (是否启用 KPM 支持?)'
         required: true
         type: choice
         default: 'enable'
         options:
           - 'enable'
           - 'disable'
-
       kernel_version:
-        description: '自定义内核版本号 (Kernel Version)'
+        description: 'Customizing the kernel version number (自定义内核版本号)'
         required: false
         type: string
         default: ''
-
       build_type:
-        description: '内核构建类型 (Build Type)'
+        description: 'Kernel Build Type (内核构建类型)'
         required: true
         type: choice
         default: 'Release'
@@ -71,11 +66,29 @@ on:
           - 'Dev'
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          DEVICES="${{ github.event.inputs.target_devices }}"
+          if [ "$DEVICES" == "all" ]; then
+            DEVICES="umi,cmi,cas,thyme,munch,dagu,elish,enuma,alioth,apollo,psyche,pipa"
+          fi
+          DEVICES_JSON="[$(echo $DEVICES | sed 's/,/","/g' | sed 's/.*/"&"/')]"
+          echo "matrix={\"device\":$DEVICES_JSON}" >> $GITHUB_OUTPUT
+
   build:
+    needs: prepare
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: write
+    strategy:
+      matrix: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
@@ -83,15 +96,16 @@ jobs:
       WORKDIR: "${{ github.workspace }}"
       KERNEL_SOURCE: "${{ github.workspace }}/kernel_source"
       TOOLCHAIN_DIR: "${{ github.workspace }}/toolchain"
+      DEVICE: "${{ matrix.device }}"
 
     steps:
-      - name: 📢 构建信息
+      - name: 📢 Build Information (构建信息)
         run: |
-          echo "设备: ${{ github.event.inputs.target_device }} | 系统: ${{ github.event.inputs.compiled_system }}"
+          echo "设备: ${DEVICE} | 系统: ${{ github.event.inputs.compiled_system }}"
           echo "KernelSU变体: ${{ github.event.inputs.kernelsu_variant }} | KPM: ${{ github.event.inputs.kpm_enable }}"
           echo "构建类型: ${{ github.event.inputs.build_type }}"
 
-      - name: 🚀 最大化构建空间
+      - name: 🚀 Maximize build space (最大化构建空间)
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 8192
@@ -102,17 +116,17 @@ jobs:
           remove-haskell: "true"
           remove-codeql: "true"
 
-      - name: 📦 安装依赖
+      - name: 📦 Installation of dependencies (安装依赖)
         run: |
           echo "正在安装构建依赖..."
           sudo apt update && sudo apt upgrade -y
           sudo apt install -y \
             bc binutils-dev bison build-essential ca-certificates ccache cmake curl file flex \
             git libelf-dev libssl-dev make ninja-build python3-dev texinfo u-boot-tools xz-utils \
-            zlib1g-dev libncurses-dev wget zip cpio python3 python3-pip tree gcc clang lld llvm
-          echo "✅ 依赖安装完成"
+            zlib1g-dev libncurses-dev wget zip cpio python3 python3-pip tree gcc clang lld llvm jq
+          echo "✅ Dependency installation complete (依赖安装完成)"
           
-      - name: ⚙️ 配置 ccache
+      - name: ⚙️ Configuring ccache (配置 ccache)
         run: |
           mkdir -p ~/.cache
           ccache --version
@@ -121,23 +135,23 @@ jobs:
           ccache --zero-stats
           echo "CCACHE_DIR=$HOME/.cache" >> $GITHUB_ENV
           
-      - name: 📥 恢复 ccache 缓存
+      - name: 📥 Restore ccache (恢复 ccache 缓存)
         uses: actions/cache@v4
         with:
           path: ~/.cache
-          key: ccache-${{ github.event.inputs.target_device }}-${{ github.event.inputs.compiled_system }}-${{ hashFiles('**/Makefile') }}
+          key: ccache-${{ matrix.device }}-${{ github.event.inputs.compiled_system }}-${{ hashFiles('**/Makefile') }}
           restore-keys: |
-            ccache-${{ github.event.inputs.target_device }}-${{ github.event.inputs.compiled_system }}-
-            ccache-${{ github.event.inputs.target_device }}-
+            ccache-${{ matrix.device }}-${{ github.event.inputs.compiled_system }}-
+            ccache-${{ matrix.device }}-
             ccache-
             
-      - name: 📥 克隆内核源码
+      - name: 📥 Cloning kernel source code （克隆内核源码）
         run: |
           echo "正在克隆内核源码..."
           git clone https://github.com/yspbwx2010/kernel_xiaomi_sm8250_mod.git --depth=1 $KERNEL_SOURCE
-          echo "✅ 内核源码克隆完成"
+          echo "✅ Kernel source code cloning complete (内核源码克隆完成)"
 
-      - name: 📥 缓存工具链
+      - name: 📥 Caching toolchain (缓存工具链)
         id: cache-toolchain
         uses: actions/cache@v4
         with:
@@ -147,7 +161,7 @@ jobs:
             toolchain-clang-r547379-gcc-
             toolchain-
             
-      - name: 📥 下载编译工具链
+      - name: 📥 Download the compilation toolchain (下载编译工具链)
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
           echo "正在下载编译工具链..."
@@ -177,15 +191,15 @@ jobs:
           git fetch --depth 1 origin
           git checkout FETCH_HEAD
           
-          echo "✅ 工具链下载完成"
+          echo "✅ Toolchain download complete (工具链下载完成)"
 
-      - name: ⚙️ 配置 KernelSU
+      - name: ⚙️ Configuring KernelSU (配置 KernelSU)
         run: |
           cd "$KERNEL_SOURCE"
           
           KSU_VARIANT="${{ github.event.inputs.kernelsu_variant }}"
           
-          echo "⚙️ 配置 KernelSU 变体: $KSU_VARIANT"
+          echo "⚙️ Configure KernelSU Variants: $KSU_VARIANT (配置 KernelSU 变体: $KSU_VARIANT)"
           
           if [ "$KSU_VARIANT" == "SukiSU-Ultra" ]; then
             curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/susfs-dev/kernel/setup.sh" | bash -s susfs-dev
@@ -194,12 +208,12 @@ jobs:
           elif [ "$KSU_VARIANT" == "KernelSU" ]; then
             curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
           else
-            echo "KernelSU 已禁用"
+            echo "KernelSU Disabled (KernelSU 已禁用)"
           fi
           
-          echo "✅ KernelSU 配置完成"
+          echo "✅ KernelSU configuration complete (KernelSU 配置完成)"
           
-      - name: 🔨 构建内核
+      - name: 🔨 Build the kernel (构建内核)
         run: |
           cd "$KERNEL_SOURCE"
           
@@ -217,18 +231,17 @@ jobs:
             O=out"
           
           # 获取参数
-          DEVICE="${{ github.event.inputs.target_device }}"
           SYSTEM="${{ github.event.inputs.compiled_system }}"
           KSU="${{ github.event.inputs.kernelsu_variant }}"
           KPM="${{ github.event.inputs.kpm_enable }}"
           VERSION="${{ github.event.inputs.kernel_version }}"
           
           # 生成设备配置
-          echo "🔧 正在生成 ${DEVICE} 的配置..."
+          echo "🔧 Generating ${DEVICE} configuration... (正在生成 ${DEVICE} 的配置)"
           make $MAKE_ARGS -j$(nproc --all) ${DEVICE}_defconfig
           
           # 开启一些附加优化配置
-          echo "🔧 应用基本优化配置..."
+          echo "🔧 Applying basic optimized configurations... (应用基本优化配置)"
           scripts/config --file out/.config \
             -e KALLSYMS \
             -e KALLSYMS_ALL \
@@ -327,7 +340,7 @@ jobs:
             
           # 根据系统类型修改配置
           if [ "$SYSTEM" == "MIUI" ]; then
-              echo "🔧 应用 MIUI 特定配置..."
+              echo "🔧 Apply MIUI specific configurations... (应用 MIUI 特定配置)"
               scripts/config --file out/.config \
                   --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
                   -e PERF_CRITICAL_RT_TASK \
@@ -360,7 +373,7 @@ jobs:
             
           # 根据 KernelSU 变体修改配置
           if [ "$KSU" == "SukiSU-Ultra" ] || [ "$KSU" == "RKSU" ]; then
-              echo "🔧 应用 SukiSU-Ultra & RKSU 配置..."
+              echo "🔧 Applying SukiSU-Ultra & RKSU Configuration... (应用 SukiSU-Ultra & RKSU 配置)"
               scripts/config --file out/.config \
                   -e KSU \
                   -e KSU_MANUAL_HOOK \
@@ -381,14 +394,14 @@ jobs:
                   -e KSU_SUSFS_OPEN_REDIRECT \
                   -d KSU_SUSFS_SUS_SU
           elif [ "$KSU" == "KernelSU" ]; then
-              echo "🔧 应用 KernelSU 配置..."
+              echo "🔧 Applying KernelSU Configuration... (应用 KernelSU 配置)"
               scripts/config --file out/.config \
                   -e KSU
           fi
             
           # 判断KPM是否启用并开启相关配置
           if [ "$KSU" == "SukiSU-Ultra" ] && [ "$KPM" == "enable" ]; then
-              echo "🔧 开启 KPM 配置..."
+              echo "🔧 Enabling KPM Configuration... (开启 KPM 配置)"
               scripts/config --file out/.config \
                   -e KPM
           fi
@@ -403,24 +416,24 @@ jobs:
           fi
             
           # 开始构建
-          echo "🚀 开始构建内核..."
+          echo "🚀 Start building the kernel... (开始构建内核)"
           make $MAKE_ARGS -j$(nproc --all) 2>&1 | tee build.log
             
           # 验证构建结果
           if [ -f "$KERNEL_SOURCE/out/arch/arm64/boot/Image" ]; then
-              echo "✅ 内核构建成功"
+              echo "✅ Kernel Build Successful (内核构建成功)"
           else
-              echo "❌ 内核构建失败"
-              echo "错误日志:"
+              echo "❌ Kernel build failure (内核构建失败)"
+              echo "error log (错误日志):"
               tail -n 100 build.log
               exit 1
           fi
             
           # 显示 ccache 统计信息
-          echo "📊 CCache 统计信息:"
+          echo "📊 CCache Statistics (CCache 统计信息):"
           ccache --show-stats
 
-      - name: 🛠️ KPM 修补 Image 文件
+      - name: 🛠️ KPM Patching Image Files (KPM 修补 Image 文件)
         run: |
           KSU_VARIANT="${{ github.event.inputs.kernelsu_variant }}"
           KPM_ENABLE="${{ github.event.inputs.kpm_enable }}"
@@ -434,15 +447,15 @@ jobs:
             if [ $? -eq 0 ]; then
               rm -f Image
               mv oImage Image
-              echo "✅ Image 文件修补完成"
+              echo "✅ Image file repair complete (Image 文件修补完成)"
             else
-              echo "❌ KPM 修补失败，使用原始 Image"
+              echo "❌ KPM Patch Failed, Use Original Image (KPM 修补失败，使用原始 Image)"
             fi
           else 
-            echo "ℹ️ KPM 未启用或 KernelSU 变体不支持 KPM"
+            echo "ℹ️ KPM is not enabled or KernelSU variants do not support KPM. (KPM 未启用或 KernelSU 变体不支持 KPM)"
           fi
 
-      - name: 📝 设置版本变量
+      - name: 📝 Setting Version Variables (设置版本变量)
         run: |
           cd "$KERNEL_SOURCE"
           
@@ -454,10 +467,9 @@ jobs:
           BUILD_DATE=$(date +%Y%m%d)
           echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
 
-      - name: 📦 打包内核到 AnyKernel3
+      - name: 📦 Package kernel to AnyKernel3 (打包内核到 AnyKernel3)
         run: |
           # 定义变量
-          DEVICE="${{ github.event.inputs.target_device }}"
           SYSTEM="${{ github.event.inputs.compiled_system }}"
           KSU="${{ github.event.inputs.kernelsu_variant }}"
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
@@ -465,7 +477,7 @@ jobs:
           BUILD_DATE="${{ env.BUILD_DATE }}"
           ZIP_NAME="${DEVICE}_${KSU}_${SYSTEM}_${BUILD_DATE}_${BUILD_ID}_${BUILD_TYPE}.zip"
           
-          echo "📦 创建 AnyKernel3 刷机包"
+          echo "📦 Create AnyKernel3 package (创建 AnyKernel3 刷机包)"
           
           # 创建目录并克隆 AnyKernel3
           mkdir -p "$WORKDIR/ak3_out"
@@ -480,60 +492,86 @@ jobs:
           cp "$KERNEL_SOURCE/out/arch/arm64/boot/Image" ./
           
           # 打包
-          echo "📦 正在创建刷机包: $ZIP_NAME"
+          echo "📦 Flashing package being created (正在创建刷机包): $ZIP_NAME"
           zip -r "$ZIP_NAME" .
           
           if [ -f "$ZIP_NAME" ]; then
-            echo "✅ 刷机包创建成功: $ZIP_NAME"
+            echo "✅ Flip package created successfully (刷机包创建成功): $ZIP_NAME"
             ls -lh "$ZIP_NAME"
             mv "$ZIP_NAME" ..
           else
-            echo "❌ 刷机包创建失败"
+            echo "❌ Brush package creation failed (刷机包创建失败)"
             exit 1
           fi
           
-
-      - name: 📤 上传编译结果
+      - name: 📤 Upload compilation results (上传编译结果)
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event.inputs.target_device }}_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.BUILD_DATE }}_${{ env.GIT_COMMIT_ID }}_${{ github.event.inputs.build_type }}
-          path: |
-            ${{ github.workspace }}/ak3_out/*.zip
-            ${{ env.KERNEL_SOURCE }}/out/arch/arm64/boot/Image
-      
-      - name: 📤 发布到 Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            ${{ github.workspace }}/ak3_out/*.zip
-            ${{ env.KERNEL_SOURCE }}/out/arch/arm64/boot/Image
-          name: Kernel_${{ github.event.inputs.target_device }}_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.BUILD_DATE }}_${{ env.GIT_COMMIT_ID }}_${{ github.event.inputs.build_type }}
-          tag_name: Kernel_${{ github.event.inputs.target_device }}_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.BUILD_DATE }}_${{ env.GIT_COMMIT_ID }}
-          body: |
-            ## 📱 内核构建信息
-            
-            ### 🌐 英文 | English
-            - **Target Device:** ${{ github.event.inputs.target_device }}
-            - **Compiled System:** ${{ github.event.inputs.compiled_system }}
-            - **KernelSU Variant:** ${{ github.event.inputs.kernelsu_variant }}
-            - **KPM Support:** ${{ github.event.inputs.kpm_enable }}
-            - **Build Type:** ${{ github.event.inputs.build_type }}
-            - **Build Date:** ${{ env.BUILD_DATE }}
-            - **Commit ID:** ${{ env.GIT_COMMIT_ID }}
-            
-            ### 🇨🇳 中文 | Chinese
-            - **目标机型:** ${{ github.event.inputs.target_device }}
-            - **适用系统:** ${{ github.event.inputs.compiled_system }}
-            - **KernelSU变体:** ${{ github.event.inputs.kernelsu_variant }}
-            - **KPM支持:** ${{ github.event.inputs.kpm_enable }}
-            - **构建类型:** ${{ github.event.inputs.build_type }}
-            - **构建日期:** ${{ env.BUILD_DATE }}
-            - **提交ID:** ${{ env.GIT_COMMIT_ID }}
-            
-            ### 📋 安装说明 | Installation Guide
-            1. 下载刷机包
-            2. 进入Recovery模式
-            3. 通过Recovery刷入刷机包
-            4. 重启设备
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: Kernel-${{ matrix.device }}
+          path: ${{ github.workspace }}/ak3_out/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: 📥 Download all zip artifacts (下载所有 zip 构建产物)
+      uses: actions/download-artifact@v4
+      with:
+        path: out
+
+    - name: 📝 Preparing files for release (准备发布文件)
+      run: |
+        cd /home/runner/work/kernel_xiaomi_sm8250_mod/kernel_xiaomi_sm8250_mod/out
+        mkdir -p release
+        for dir in */; do
+        cd "$dir"
+        for zip_file in *; do
+          if [[ -f "$zip_file" && "$zip_file" == *.zip ]]; then
+            unzip "$zip_file" -d ../../release
+            rm -rf "$zip_file"
+          fi
+        done
+        cd ..
+        done
+        # 列出 release 文件夹的内容
+        ls -la release
+
+    - name: 📅 Setting date variables (设置日期变量)
+      run: echo "RELEASE_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+          
+    - name: 📤 Post to Release (发布到 Release)
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ./release/*.zip
+        name: Kernel_${{ matrix.device }}_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.BUILD_DATE }}_${{ env.GIT_COMMIT_ID }}_${{ github.event.inputs.build_type }}
+        tag_name: Kernel_${{ matrix.device }}_${{ github.event.inputs.kernelsu_variant }}_${{ github.event.inputs.compiled_system }}_${{ env.BUILD_DATE }}_${{ env.GIT_COMMIT_ID }}
+        body: |
+          ## 📱kernel build information | 内核构建信息
+          
+          ### 🌐 英文 | English
+          - **Target Device:** ${{ matrix.device }}
+          - **Compiled System:** ${{ github.event.inputs.compiled_system }}
+          - **KernelSU Variant:** ${{ github.event.inputs.kernelsu_variant }}
+          - **KPM Support:** ${{ github.event.inputs.kpm_enable }}
+          - **Build Type:** ${{ github.event.inputs.build_type }}
+          - **Build Date:** ${{ env.BUILD_DATE }}
+          - **Commit ID:** ${{ env.GIT_COMMIT_ID }}
+          
+          ### 🇨🇳 中文 | Chinese
+          - **目标机型:** ${{ matrix.device }}
+          - **适用系统:** ${{ github.event.inputs.compiled_system }}
+          - **KernelSU变体:** ${{ github.event.inputs.kernelsu_variant }}
+          - **KPM支持:** ${{ github.event.inputs.kpm_enable }}
+          - **构建类型:** ${{ github.event.inputs.build_type }}
+          - **构建日期:** ${{ env.BUILD_DATE }}
+          - **提交ID:** ${{ env.GIT_COMMIT_ID }}
+          
+          ### 📋 安装说明 | Installation Guide
+          1. 下载对应机型的刷机包
+          2. 进入Recovery模式
+          3. 通过Recovery刷入刷机包
+          4. 重启设备
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
