@@ -414,6 +414,23 @@ jobs:
               echo "🔧 使用默认版本后缀: -Yun"
               sed -i "s/-dirty/-Yun/g" scripts/setlocalversion
           fi
+
+          FULL_VERSION="$VERSION"
+          if [ ! -z "$FULL_VERSION" ]; then
+            main_version=$(echo "$FULL_VERSION" | grep -oE '^[0-9]+(\.[0-9]+)*')
+            custom_part=$(echo "$FULL_VERSION" | grep -oE '(-[a-zA-Z0-9]+)*$')
+            makefile_path="$KERNEL_SOURCE/Makefile"
+            IFS='.' read -ra version_parts <<< "$main_version"
+            sed -i "2s/.*/VERSION = ${version_parts[0]}/" "$makefile_path"
+            if [ -n "${version_parts[1]}" ]; then
+              sed -i "3s/.*/PATCHLEVEL = ${version_parts[1]}/" "$makefile_path"
+            fi
+            if [ -n "${version_parts[2]}" ]; then
+              sed -i "4s/.*/SUBLEVEL = ${version_parts[2]}/" "$makefile_path"
+            fi
+
+            sed -i "s/echo \"\$res\"/echo \"${custom_part}\"/g" "$KERNEL_SOURCE/scripts/setlocalversion"
+          fi
             
           # 开始构建
           echo "🚀 Start building the kernel... (开始构建内核)"
