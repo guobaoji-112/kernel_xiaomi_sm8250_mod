@@ -139,10 +139,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache
-          key: ccache-${{ matrix.device }}-${{ github.event.inputs.compiled_system }}-${{ hashFiles('**/Makefile') }}
+          key: ccache-${{ github.event.inputs.compiled_system }}-${{ hashFiles('**/Makefile') }}
           restore-keys: |
-            ccache-${{ matrix.device }}-${{ github.event.inputs.compiled_system }}-
-            ccache-${{ matrix.device }}-
+            ccache-${{ github.event.inputs.compiled_system }}-
             ccache-
             
       - name: 📥 Cloning kernel source code （克隆内核源码）
